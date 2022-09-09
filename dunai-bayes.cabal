@@ -1,0 +1,45 @@
+name:                dunai-bayes
+version:             0.9.0
+synopsis:            Library for reactive online machine learning
+description:
+  This package provides a connection between `dunai` and the `monad-bayes` library,
+  enabling you to write stochastic processes as monadic stream functions.
+license:             BSD3
+license-file:        LICENSE
+author:              Manuel Bärenz
+maintainer:          programming@manuelbaerenz.de
+-- copyright:
+category:            FRP
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+extra-doc-files:     README.md
+cabal-version:       1.18
+
+source-repository head
+  type:     git
+  location: git@github.com:turion/dunai-bayes.git
+
+source-repository this
+  type:     git
+  location: git@github.com:turion/dunai-bayes.git
+  tag:      v0.9.0.0
+
+library
+  exposed-modules:
+    Data.MonadicStreamFunction.Bayes
+  build-depends:       base         >= 4.11 && < 4.16
+                     , log-domain   >= 0.12
+                     , monad-bayes  >= 0.1.1
+                     , dunai        >= 0.9
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:  Arrows
+  ghc-options:         -W
+  if flag(dev)
+    ghc-options: -Werror
+
+
+flag dev
+  description: Enable warnings as errors. Active on ci.
+  default: False
+  manual: True
