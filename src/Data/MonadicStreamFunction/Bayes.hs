@@ -103,6 +103,8 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
     runPopulationCl' :: Monad m => Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
     runPopulationCl' msfs = MSF $ \a -> do
       -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
+      -- FIXME I could also fmap the bs out, then I still have Population m b! (And this can be done in general for any monad...)
+      -- FIXME I could also fmap the continuations out, then I save myself a fromWeightedList and a return...
       bAndMSFs <- runPopulation $ flip unMSF a =<< msfs
       -- FIXME This abominal lambda could be done away by using Weighted?
       let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
