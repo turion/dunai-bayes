@@ -5,6 +5,8 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Data.MonadicStreamFunction.Bayes where
 
@@ -25,6 +27,8 @@ import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
 import GHC.TypeNats
 import Data.Proxy
+import Control.Monad.Trans.MSF (performOnFirstSample)
+import Data.Functor.Compose
 
 bayesFilter' :: (MonadInfer m, SoftEq sensor) =>
   -- | model
@@ -105,6 +109,18 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
       -- FIXME This normalizes, which introduces bias, whatever that means
       return (currentPopulation, runPopulationCl' $ normalize $ resampler $ fromWeightedList $ return continuations)
 
+-- This I can write with snapshot & >>>
+
+handle' :: (Monad m, Monad (t m), Monad (Compose m t'), Functor t') => (forall x . t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
+handle' handler = handleCompose . fmap (morphS (Compose . handler)) . Compose . handler
+
+handle :: (Monad m, Monad (t m)) => (forall x . t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
+handle handler msf = MSF $ \a -> do
+  let tb = fst <$> (flip unMSF a =<< msf)
+      msf' = snd <$> (flip unMSF a =<< msf)
+  b <- handler tb
+  return (b, handle handler msf')
+
 collapseS :: MonadInfer m => MSF (Population m) a b -> MSF m a b
 collapseS = morphS collapse
 
@@ -126,3 +142,16 @@ instance Fractional a => Statistical (Average a) where
 -- FIXME try coerce
 average :: Fractional a => [(a, Double)] -> a
 average = getAverage . statistic . fmap (first Average)
+
+handleCompose :: (Monad m, Monad (Compose m f), Functor f) => Compose m f (MSF (Compose m f) a b) -> MSF m a (f b)
+handleCompose msf = MSF $ \a -> do
+  bAndMSF <- getCompose $ flip unMSF a =<< msf
+  return (fst <$> bAndMSF, handleCompose $ Compose $ return $ snd <$> bAndMSF)
+
+-- FIXME Is this handleCompose for Compose m Identity or Compose Identity m?
+-- | Keep running the 'MSF', but return the output in the current context.
+snapshot :: Functor m => MSF m a b -> MSF m a (m b)
+snapshot msf = MSF $ \a -> do
+  let b = fst <$> unMSF msf a
+      msf' = snd <$> unMSF msf a
+  (b, ) . snapshot <$> msf'
