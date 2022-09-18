@@ -13,6 +13,8 @@ module Data.MonadicStreamFunction.Bayes where
 -- base
 import Control.Arrow
 import Data.Functor (($>))
+import Data.Proxy
+import GHC.TypeNats
 
 -- log-domain
 import Numeric.Log hiding (sum)
@@ -25,8 +27,6 @@ import Control.Monad.Bayes.Weighted hiding (flatten)
 -- dunai
 import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
-import GHC.TypeNats
-import Data.Proxy
 import Control.Monad.Trans.MSF (performOnFirstSample)
 import Data.Functor.Compose
 
