@@ -62,7 +62,7 @@ class SoftEq a where
 
 -- FIXME Do I want this?
 instance SoftEq Double where
-  similarity a1 a2 = normalPdf a1 2 a2
+  similarity a1 a2 = normalPdf a1 1 a2
 
 -- | Hard equality check
 newtype Exact a = Exact { getExact :: a }
