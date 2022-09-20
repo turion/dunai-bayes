@@ -13,6 +13,7 @@ module Data.MonadicStreamFunction.Bayes where
 -- base
 import Control.Arrow
 import Data.Functor (($>))
+import Data.Functor.Compose
 import Data.Proxy
 import GHC.TypeNats
 
@@ -27,8 +28,6 @@ import Control.Monad.Bayes.Weighted hiding (flatten)
 -- dunai
 import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
-import Control.Monad.Trans.MSF (performOnFirstSample)
-import Data.Functor.Compose
 
 bayesFilter' :: (MonadInfer m, SoftEq sensor) =>
   -- | model
