@@ -23,13 +23,14 @@ import Numeric.Log hiding (sum)
 -- monad-bayes
 import Control.Monad.Bayes.Class
 import Control.Monad.Bayes.Population
+import qualified Control.Monad.Bayes.Population as Population
 import Control.Monad.Bayes.Weighted hiding (flatten)
 
 -- dunai
 import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
 
-bayesFilter' :: (MonadInfer m, SoftEq sensor) =>
+bayesFilter' :: (MonadMeasure m, SoftEq sensor) =>
   -- | model
   MSF m input (sensor, state) ->
   -- | external sensor, data source
@@ -43,7 +44,7 @@ bayesFilter' model sensor = proc input -> do
 -- | Condition on one output of a distribution.
 --
 --   p(x,y | theta) ~> p(x | y, theta)
-bayesFilter :: (MonadInfer m, SoftEq sensor) =>
+bayesFilter :: (MonadMeasure m, SoftEq sensor) =>
   MSF m input (sensor, latent) ->
   -- | external sensor, data source
   MSF m (input, sensor) latent
@@ -57,7 +58,7 @@ class SoftEq a where
   similarity :: a -> a -> Log Double
 
   -- | Scores the similarity of the two inputs
-  (=~) :: MonadInfer m => a -> a -> m ()
+  (=~) :: MonadMeasure m => a -> a -> m ()
   a1 =~ a2 = score $ similarity a1 a2
 
 -- FIXME Do I want this?
@@ -108,7 +109,7 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
       -- FIXME This abominal lambda could be done away by using Weighted?
       let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
       -- FIXME This normalizes, which introduces bias, whatever that means
-      return (currentPopulation, runPopulationCl' $ normalize $ resampler $ fromWeightedList $ return continuations)
+      return (currentPopulation, runPopulationCl' $ resampler $ fromWeightedList $ return continuations)
 
 -- This I can write with snapshot & >>>
 
@@ -122,11 +123,11 @@ handle handler msf = MSF $ \a -> do
   b <- handler tb
   return (b, handle handler msf')
 
-collapseS :: MonadInfer m => MSF (Population m) a b -> MSF m a b
+collapseS :: MonadMeasure m => MSF (Population m) a b -> MSF m a b
 collapseS = morphS collapse
 
 -- FIXME unit test. Does this what I think it does?
-properS :: MonadSample m => MSF (Population m) a b -> MSF (Weighted m) a b
+properS :: MonadDistribution m => MSF (Population m) a b -> MSF (Weighted m) a b
 properS = morphS proper
 
 -- FIXME separate module. actually, separate package

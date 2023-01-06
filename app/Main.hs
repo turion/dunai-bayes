@@ -30,7 +30,7 @@ type StdDev = Double
 type Pos = Double
 type Sensor = Pos
 
-model :: (MonadSample m, Diff td ~ Float) => BehaviourF m td StdDev (Sensor, Pos)
+model :: (MonadDistribution m, Diff td ~ Float) => BehaviourF m td StdDev (Sensor, Pos)
 model = proc stdDev -> do
   acceleration <- arrM $ normal 5 -< stdDev
   -- Integral over roughly the last 100 seconds, dying off exponentially
@@ -43,10 +43,10 @@ model = proc stdDev -> do
 decayIntegral :: (VectorSpace v (Diff td), Monad m) => Diff td -> BehaviourF m td v v
 decayIntegral timeConstant = average timeConstant >>> arr (timeConstant *^)
 
-sensor :: (MonadSample m, Diff td ~ Float) => BehaviourF m td StdDev Sensor
+sensor :: (MonadDistribution m, Diff td ~ Float) => BehaviourF m td StdDev Sensor
 sensor = model >>> arr fst
 
-filtered :: (MonadInfer m, Diff td ~ Float) => BehaviourF m td (StdDev, Sensor) Pos
+filtered :: (MonadMeasure m, Diff td ~ Float) => BehaviourF m td (StdDev, Sensor) Pos
 filtered = proc (stdDev, sensor) -> do
   (estimatedOutput, latent) <- model -< stdDev
   arrM factor -< normalPdf estimatedOutput 1 sensor -- FIXME I think this is called an importance function?
@@ -54,7 +54,7 @@ filtered = proc (stdDev, sensor) -> do
 -- filtered = bayesFilter model
 
 -- FIXME Can't do it with Has?
--- mainClSF :: (MonadIO m, MonadInfer m, Has (ExceptT ()) m) => BehaviourF m td () ()
+-- mainClSF :: (MonadIO m, MonadMeasure m, Has (ExceptT ()) m) => BehaviourF m td () ()
 
 type MySmallMonad = Sequential (GlossConcT SamplerIO)
 
@@ -120,7 +120,7 @@ mainClSF = proc () -> do
   -- liftClSF $ liftClSF $ throwOn () -< n > 100
 
 -- FIXME should be in monad-bayes
-instance MonadSample m => MonadSample (ExceptT e m) where
+instance MonadDistribution m => MonadDistribution (ExceptT e m) where
   random = lift random
 
 -- liftHS :: Has t m => (forall n . ClSF (t n) cl a b) -> ClSF m cl a b
@@ -146,7 +146,7 @@ cl = ioClock waitClock
 
 -- See, this is why we need effect frameworks.
 -- Or why monad-bayes needs newtypes for monad transformers
-instance MonadSample m => MonadSample (GlossConcT m) where
+instance MonadDistribution m => MonadDistribution (GlossConcT m) where
   random = lift random
   -- FIXME Other PDs?
 
