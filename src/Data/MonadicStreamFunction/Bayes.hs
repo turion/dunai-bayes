@@ -108,8 +108,11 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
       bAndMSFs <- runPopulation $ flip unMSF a =<< msfs
       -- FIXME This abominal lambda could be done away by using Weighted?
       let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
-      -- FIXME This normalizes, which introduces bias, whatever that means
-      return (currentPopulation, runPopulationCl' $ resampler $ fromWeightedList $ return continuations)
+          normalizedContinuations = runPopulationCl' $
+            -- FIXME This normalizes, which introduces bias, whatever that means
+            fromWeightedList $ fmap (\particles -> second (/ (sum $ snd <$> particles)) <$> particles) $ runPopulation $
+            resampler $ fromWeightedList $ return continuations
+      return (currentPopulation, normalizedContinuations)
 
 -- This I can write with snapshot & >>>
 
