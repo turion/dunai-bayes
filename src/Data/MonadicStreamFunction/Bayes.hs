@@ -97,6 +97,7 @@ runPopulationS :: forall m a b . Monad m =>
   -- | Resampler
   (forall x . Population m x -> Population m x)
   -> MSF (Population m) a b
+  -- FIXME Why not MSF m a (Population b)
   -> MSF m a [(b, Log Double)]
 runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $> msf
   where
