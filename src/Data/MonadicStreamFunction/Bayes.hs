@@ -135,6 +135,7 @@ properS :: MonadDistribution m => MSF (Population m) a b -> MSF (Weighted m) a b
 properS = morphS proper
 
 -- FIXME separate module. actually, separate package
+-- And search whether such a package already exists first.
 class Statistical a where
   statistic :: [(a, Double)] -> a
 
