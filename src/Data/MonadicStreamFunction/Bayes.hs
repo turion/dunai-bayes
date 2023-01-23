@@ -29,6 +29,7 @@ import Control.Monad.Bayes.Weighted hiding (flatten)
 -- dunai
 import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
+import Control.Monad.Trans.MSF (performOnFirstSample)
 
 bayesFilter' :: (MonadMeasure m, SoftEq sensor) =>
   -- | model
@@ -114,6 +115,11 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
             fromWeightedList $ fmap (\particles -> second (/ (sum $ snd <$> particles)) <$> particles) $ runPopulation $
             resampler $ fromWeightedList $ return continuations
       return (currentPopulation, normalizedContinuations)
+
+constantParameter :: Monad m =>
+  m a ->
+  MSF m arbitrary a
+constantParameter action = performOnFirstSample $ pure <$> action
 
 -- This I can write with snapshot & >>>
 
