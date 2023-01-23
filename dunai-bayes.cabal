@@ -27,7 +27,7 @@ source-repository this
 library
   exposed-modules:
     Data.MonadicStreamFunction.Bayes
-  build-depends:       base         >= 4.11 && < 4.16
+  build-depends:       base         >= 4.11 && < 4.17
                      , log-domain   >= 0.12
                      , monad-bayes
                      , dunai        >= 0.9
