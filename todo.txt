@@ -1,0 +1,6 @@
+Dirichlet process Rejuvenation Particle filter Realtime Online T* (DiRe ParROT)
+
+* PMMH or SMC2 with fixed history as a separate process estimating the parameters
+
+Predator Prey analysis with real data
+Even just Prey: Growth rate
