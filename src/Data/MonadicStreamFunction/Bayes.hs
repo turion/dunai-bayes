@@ -108,18 +108,16 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
   runPopulationCl' :: Monad m => Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
   runPopulationCl' msfs = MSF $ \a -> do
     -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
-    -- FIXME I could also fmap the bs out, then I still have Population m b! (And this can be done in general for any monad...)
-    -- FIXME I could also fmap the continuations out, then I save myself a fromWeightedList and a return...
-    bAndMSFs <- runPopulation $ flip unMSF a =<< msfs
-    let (currentPopulation, continuations) = unzip $ (swap . fmap fst &&& swap . fmap snd) . swap <$> bAndMSFs
-        normalizedContinuations =
-          runPopulationCl' $
-            -- FIXME This normalizes, which introduces bias, whatever that means
-            normalize $
-              resampler $
-                fromWeightedList $
-                  return continuations
-    return (currentPopulation, normalizedContinuations)
+    -- FIXME This normalizes, which introduces bias, whatever that means
+    bAndMSFs <- runPopulation $ normalize $ resampler $ flip unMSF a =<< msfs
+    return
+      $ second
+        ( runPopulationCl'
+            . fromWeightedList
+            . return
+        )
+      $ unzip
+      $ (swap . fmap fst &&& swap . fmap snd) . swap <$> bAndMSFs
 
 -- FIXME see PR re-adding this to monad-bayes
 normalize :: Monad m => Population m a -> Population m a
