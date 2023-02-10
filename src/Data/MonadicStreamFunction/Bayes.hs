@@ -8,6 +8,7 @@ import Control.Arrow
 import Data.Functor (($>))
 import Data.Functor.Compose
 import Data.Proxy
+import Data.Tuple (swap)
 import GHC.TypeNats
 
 -- log-domain
@@ -94,16 +95,16 @@ runPopulationS :: forall m a b . Monad m =>
   -- FIXME Why not MSF m a (Population b)
   -> MSF m a [(b, Log Double)]
 runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $> msf
-  where
-    runPopulationCl' :: Monad m => Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
-    runPopulationCl' msfs = MSF $ \a -> do
-      -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
-      -- FIXME I could also fmap the bs out, then I still have Population m b! (And this can be done in general for any monad...)
-      -- FIXME I could also fmap the continuations out, then I save myself a fromWeightedList and a return...
-      bAndMSFs <- runPopulation $ flip unMSF a =<< msfs
-      -- FIXME This abominal lambda could be done away by using Weighted?
-      let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
-          normalizedContinuations = runPopulationCl' $
+ where
+  runPopulationCl' :: Monad m => Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
+  runPopulationCl' msfs = MSF $ \a -> do
+    -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
+    -- FIXME I could also fmap the bs out, then I still have Population m b! (And this can be done in general for any monad...)
+    -- FIXME I could also fmap the continuations out, then I save myself a fromWeightedList and a return...
+    bAndMSFs <- runPopulation $ flip unMSF a =<< msfs
+    let (currentPopulation, continuations) = unzip $ (swap . fmap fst &&& swap . fmap snd) . swap <$> bAndMSFs
+        normalizedContinuations =
+          runPopulationCl' $
             -- FIXME This normalizes, which introduces bias, whatever that means
             fromWeightedList $ fmap (\particles -> second (/ (sum $ snd <$> particles)) <$> particles) $ runPopulation $
             resampler $ fromWeightedList $ return continuations
