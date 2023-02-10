@@ -7,6 +7,7 @@ module Data.MonadicStreamFunction.Bayes where
 import Control.Arrow
 import Data.Functor (($>))
 import Data.Functor.Compose
+import Data.Functor.Identity (Identity (Identity))
 import Data.Proxy
 import Data.Tuple (swap)
 import GHC.TypeNats
@@ -17,8 +18,7 @@ import Numeric.Log hiding (sum)
 -- monad-bayes
 import Control.Monad.Bayes.Class
 import Control.Monad.Bayes.Population
-import qualified Control.Monad.Bayes.Population as Population
-import Control.Monad.Bayes.Weighted hiding (flatten)
+import Control.Monad.Bayes.Weighted
 
 -- dunai
 import Control.Monad.Trans.MSF (performOnFirstSample)
@@ -124,17 +124,77 @@ constantParameter :: Monad m =>
   MSF m arbitrary a
 constantParameter action = performOnFirstSample $ pure <$> action
 
--- This I can write with snapshot & >>>
-
-handle' :: (Monad m, Monad (t m), Monad (Compose m t'), Functor t') => (forall x . t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
+{-
+handle' :: (Monad m, Monad (t m), Functor t') => (forall x . t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
 handle' handler = handleCompose . fmap (morphS (Compose . handler)) . Compose . handler
+-}
 
-handle :: (Monad m, Monad (t m)) => (forall x . t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
+handle :: (Functor m, Monad (t m)) => (forall x. t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
 handle handler msf = MSF $ \a -> do
   let tb = fst <$> (flip unMSF a =<< msf)
       msf' = snd <$> (flip unMSF a =<< msf)
   b <- handler tb
   return (b, handle handler msf')
+
+{-
+handle'' :: (Monad m, Monad (t m)) => (forall x . t m x -> m (t' x)) -> t m (MSF (t m) a b) -> MSF m a (t' b)
+handle'' handler = _ . joinS
+-}
+
+joinOutput :: Monad m => MSF m a (m b) -> MSF m a b
+joinOutput msf = msf >>> arrM id
+
+joinS :: Monad m => m (MSF m a b) -> MSF m a (m b)
+joinS msf = MSF $ \a -> do
+  let joined = flip unMSF a =<< msf
+      tb = fst <$> joined
+      msf' = snd <$> joined
+  return (tb, joinS msf')
+
+handleCompose :: (Monad m, Monad (Compose m f), Functor f) => Compose m f (MSF (Compose m f) a b) -> MSF m a (f b)
+handleCompose msf = MSF $ \a -> do
+  bAndMSF <- getCompose $ flip unMSF a =<< msf
+  return (fst <$> bAndMSF, handleCompose $ Compose $ return $ snd <$> bAndMSF)
+
+newtype FlipCompose f m a = FlipCompose {getFlipCompose :: Compose m f a}
+  deriving (Functor, Applicative)
+
+-- Could prove Monad (FlipCompose f m)
+handleCompose'''' :: (Functor f, Monad (Compose m f), Functor m, Monad (FlipCompose f m)) => Compose m f (MSF (Compose m f) a b) -> MSF m a (f b)
+handleCompose'''' = handle (getCompose . getFlipCompose) . fmap (morphS FlipCompose) . FlipCompose
+
+handleCompose' :: (Monad m, Monad (Compose m f), Functor f) => MSF (Compose m f) a b -> MSF m a (f b)
+handleCompose' = handleCompose . return
+
+handleCompose'' :: (Monad m, Monad (Compose m f), Functor f) => MSF (Compose m f) a b -> MSF m a (f b)
+handleCompose'' msf = MSF $ \a -> do
+  bAndMSF <- getCompose $ flip unMSF a msf
+  return (fst <$> bAndMSF, handleCompose $ Compose $ return $ snd <$> bAndMSF)
+
+{-
+handleCompose''' :: (Monad m, Monad (Compose m f), Functor f) => MSF (Compose m f) a b -> MSF m a (f b)
+handleCompose''' = _ . (arr getCompose <<<) . snapshot
+-}
+
+-- FIXME Is this handleCompose for Compose m Identity or Compose Identity m?
+
+-- | Keep running the 'MSF', but return the output in the current context.
+snapshot :: Functor m => MSF m a b -> MSF m a (m b)
+snapshot msf = MSF $ \a -> do
+  let b = fst <$> unMSF msf a
+      msf' = snd <$> unMSF msf a
+  (b,) . snapshot <$> msf'
+
+{-
+snapshot' :: (Functor m, Monad m, Monad (Compose Identity m)) => MSF m a b -> MSF m a (m b)
+snapshot' = _ . handleCompose' . morphS (Compose . Identity)
+-}
+
+snapshot'' :: (Functor m, Monad m, Monad (Compose m m)) => MSF m a b -> MSF m a (m b)
+snapshot'' = handleCompose' . morphS (Compose . fmap return)
+
+accumulate' :: (Functor m, Monad m, Monad (Compose Identity m)) => MSF m a b -> MSF Identity a (m b)
+accumulate' = handleCompose' . morphS (Compose . Identity)
 
 collapseS :: MonadMeasure m => MSF (Population m) a b -> MSF m a b
 collapseS = morphS collapse
@@ -148,7 +208,7 @@ properS = morphS proper
 class Statistical a where
   statistic :: [(a, Double)] -> a
 
-newtype Average a = Average { getAverage :: a }
+newtype Average a = Average {getAverage :: a}
   deriving (Num, Fractional)
 
 instance Fractional a => Statistical (Average a) where
@@ -158,16 +218,3 @@ instance Fractional a => Statistical (Average a) where
 -- FIXME try coerce
 average :: Fractional a => [(a, Double)] -> a
 average = getAverage . statistic . fmap (first Average)
-
-handleCompose :: (Monad m, Monad (Compose m f), Functor f) => Compose m f (MSF (Compose m f) a b) -> MSF m a (f b)
-handleCompose msf = MSF $ \a -> do
-  bAndMSF <- getCompose $ flip unMSF a =<< msf
-  return (fst <$> bAndMSF, handleCompose $ Compose $ return $ snd <$> bAndMSF)
-
--- FIXME Is this handleCompose for Compose m Identity or Compose Identity m?
--- | Keep running the 'MSF', but return the output in the current context.
-snapshot :: Functor m => MSF m a b -> MSF m a (m b)
-snapshot msf = MSF $ \a -> do
-  let b = fst <$> unMSF msf a
-      msf' = snd <$> unMSF msf a
-  (b, ) . snapshot <$> msf'
