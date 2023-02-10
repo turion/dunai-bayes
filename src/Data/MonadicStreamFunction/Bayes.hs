@@ -115,11 +115,18 @@ runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $>
         normalizedContinuations =
           runPopulationCl' $
             -- FIXME This normalizes, which introduces bias, whatever that means
-            fromWeightedList $ fmap (\particles -> second (/ (sum $ snd <$> particles)) <$> particles) $ runPopulation $
-            resampler $ fromWeightedList $ return continuations
-      return (currentPopulation, normalizedContinuations)
+            normalize $
+              resampler $
+                fromWeightedList $
+                  return continuations
+    return (currentPopulation, normalizedContinuations)
 
-constantParameter :: Monad m =>
+-- FIXME see PR re-adding this to monad-bayes
+normalize :: Monad m => Population m a -> Population m a
+normalize = fromWeightedList . fmap (\particles -> second (/ (sum $ snd <$> particles)) <$> particles) . runPopulation
+
+constantParameter ::
+  Monad m =>
   m a ->
   MSF m arbitrary a
 constantParameter action = performOnFirstSample $ pure <$> action
