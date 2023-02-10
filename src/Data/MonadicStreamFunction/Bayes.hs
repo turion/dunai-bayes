@@ -21,11 +21,12 @@ import qualified Control.Monad.Bayes.Population as Population
 import Control.Monad.Bayes.Weighted hiding (flatten)
 
 -- dunai
-import Data.MonadicStreamFunction
-import Data.MonadicStreamFunction.InternalCore (MSF(..))
 import Control.Monad.Trans.MSF (performOnFirstSample)
+import Data.MonadicStreamFunction
+import Data.MonadicStreamFunction.InternalCore (MSF (..))
 
-bayesFilter' :: (MonadMeasure m, SoftEq sensor) =>
+bayesFilter' ::
+  (MonadMeasure m, SoftEq sensor) =>
   -- | model
   MSF m input (sensor, state) ->
   -- | external sensor, data source
@@ -36,10 +37,12 @@ bayesFilter' model sensor = proc input -> do
   estimatedState <- bayesFilter model -< (input, output)
   returnA -< (output, estimatedState)
 
--- | Condition on one output of a distribution.
---
---   p(x,y | theta) ~> p(x | y, theta)
-bayesFilter :: (MonadMeasure m, SoftEq sensor) =>
+{- | Condition on one output of a distribution.
+
+   p(x,y | theta) ~> p(x | y, theta)
+-}
+bayesFilter ::
+  (MonadMeasure m, SoftEq sensor) =>
   MSF m input (sensor, latent) ->
   -- | external sensor, data source
   MSF m (input, sensor) latent
@@ -61,14 +64,14 @@ instance SoftEq Double where
   similarity a1 a2 = normalPdf a1 1 a2
 
 -- | Hard equality check
-newtype Exact a = Exact { getExact :: a }
+newtype Exact a = Exact {getExact :: a}
   deriving (Eq, Show, Read, Ord, Enum, Functor, Num, Integral, Real, Fractional, Floating)
 
 instance Eq a => SoftEq (Exact a) where
   similarity a1 a2 = if a1 == a2 then 1 else 0
 
 -- FIXME naming
-newtype DigitsPrecision (n :: Nat) a = DigitsPrecision { getDigitsPrecision :: a }
+newtype DigitsPrecision (n :: Nat) a = DigitsPrecision {getDigitsPrecision :: a}
   deriving (Eq, Show, Read, Ord, Enum, Functor, Num, Integral, Real, Fractional, Floating)
 
 digitsPrecisionProxy :: DigitsPrecision n a -> Proxy n
@@ -81,19 +84,25 @@ instance (SoftEq a, SoftEq b) => SoftEq (a, b) where
   similarity (a1, b1) (a2, b2) = similarity a1 a2 + similarity b1 b2 -- FIXME + not *?
 
 -- TODO particle path finder:
+
 -- * Send particles in all directions
+
 -- * Move in the average direction where particles came closest
+
 -- This should work for general control if the control space is not too high dimensional (bang bang to reduce to graph problem)
+
 -- * Is there a MCMC control algorithm?
 
-runPopulationS :: forall m a b . Monad m =>
+runPopulationS ::
+  forall m a b.
+  Monad m =>
   -- | Number of particles
   Int ->
   -- | Resampler
-  (forall x . Population m x -> Population m x)
-  -> MSF (Population m) a b
+  (forall x. Population m x -> Population m x) ->
+  MSF (Population m) a b ->
   -- FIXME Why not MSF m a (Population b)
-  -> MSF m a [(b, Log Double)]
+  MSF m a [(b, Log Double)]
 runPopulationS nParticles resampler msf = runPopulationCl' $ spawn nParticles $> msf
  where
   runPopulationCl' :: Monad m => Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
