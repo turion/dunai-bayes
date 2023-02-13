@@ -25,32 +25,6 @@ import Control.Monad.Trans.MSF (performOnFirstSample)
 import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF (..))
 
-bayesFilter' ::
-  (MonadMeasure m, SoftEq sensor) =>
-  -- | model
-  MSF m input (sensor, state) ->
-  -- | external sensor, data source
-  MSF m input sensor ->
-  MSF m input (sensor, state)
-bayesFilter' model sensor = proc input -> do
-  output <- sensor -< input
-  estimatedState <- bayesFilter model -< (input, output)
-  returnA -< (output, estimatedState)
-
-{- | Condition on one output of a distribution.
-
-   p(x,y | theta) ~> p(x | y, theta)
--}
-bayesFilter ::
-  (MonadMeasure m, SoftEq sensor) =>
-  MSF m input (sensor, latent) ->
-  -- | external sensor, data source
-  MSF m (input, sensor) latent
-bayesFilter model = proc (input, measuredOutput) -> do
-  (estimatedOutput, estimatedState) <- model -< input
-  arrM score -< similarity estimatedOutput measuredOutput
-  returnA -< estimatedState
-
 class SoftEq a where
   -- | `similarity a1 a2 == 1` if they are exactly equal, and 0 if they are completely different.
   similarity :: a -> a -> Log Double
