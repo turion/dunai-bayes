@@ -5,13 +5,17 @@ module Data.MonadicStreamFunction.Bayes where
 
 -- base
 import Control.Arrow
-import Control.Monad (forM, join)
-import Data.Functor (($>))
+import Control.Monad (forM, join, replicateM)
+import Data.Functor (($>), (<&>))
 import Data.Functor.Compose
 import Data.Functor.Identity (Identity (Identity))
+import Data.List (sortOn)
 import Data.Proxy
 import Data.Tuple (swap)
 import GHC.TypeNats
+
+-- transformers
+import Control.Monad.Trans.Class
 
 -- log-domain
 import Numeric.Log hiding (sum)
@@ -23,9 +27,10 @@ import Control.Monad.Bayes.Weighted
 
 -- dunai
 import Control.Monad.Trans.MSF (performOnFirstSample)
+import Control.Monad.Trans.MSF.List
+import Control.Monad.Trans.MSF.Reader (readerS, runReaderS_)
 import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF (..))
-import Control.Monad.Trans.MSF.List
 
 class SoftEq a where
   -- | `similarity a1 a2 == 1` if they are exactly equal, and 0 if they are completely different.
@@ -79,21 +84,24 @@ runPopulationS ::
   MSF (Population m) a b ->
   -- FIXME Why not MSF m a (Population b)
   MSF m a [(b, Log Double)]
-runPopulationS nParticles resampler = runPopulationCl' . return . performOnFirstSample . (spawn nParticles $>)
+runPopulationS nParticles resampler = runPopulationsS resampler . (spawn nParticles $>)
+
+runPopulationsS ::
+  Monad m =>
+  -- | Resampler
+  (forall x. Population m x -> Population m x) ->
+  Population m (MSF (Population m) a b) ->
+  MSF m a [(b, Log Double)]
+runPopulationsS resampler = go
  where
-  runPopulationCl' :: Monad m => Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
-  runPopulationCl' msfs = MSF $ \a -> do
+  go msfs = MSF $ \a -> do
     -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
     -- FIXME This normalizes, which introduces bias, whatever that means
     bAndMSFs <- runPopulation $ normalize $ resampler $ flip unMSF a =<< msfs
-    return
-      $ second
-        ( runPopulationCl'
-            . fromWeightedList
-            . return
-        )
-      $ unzip
-      $ (swap . fmap fst &&& swap . fmap snd) . swap <$> bAndMSFs
+    return $
+      second (go . fromWeightedList . return) $
+        unzip $
+          (swap . fmap fst &&& swap . fmap snd) . swap <$> bAndMSFs
 
 runPopulationS' ::
   forall m a b.
@@ -139,6 +147,120 @@ runPopulationS''' ::
   -- FIXME Why not MSF m a (Population b)
   MSF m a [(b, Log Double)]
 runPopulationS''' nParticles resampler = runPopulationS'' . hoistMSF (normalize . resampler) . performOnFirstSample . (spawn nParticles $>)
+
+-- | This is stupid because it runs into the collapse
+runPopulationParamSimpleS ::
+  forall m a b param.
+  Monad m =>
+  -- | Number of particles
+  Int ->
+  -- | Resampler
+  (forall x. Population m x -> Population m x) ->
+  m param ->
+  MSF (Population m) (param, a) b ->
+  -- FIXME Why not MSF m a (Population b)
+  MSF m a [((b, param), Log Double)]
+runPopulationParamSimpleS nParticles resampler param = runPopulationsS resampler . ((spawn nParticles >> lift param) <&>) . runReaderS_ . readerS . (&&& arr fst)
+
+-- | Constant number of particles
+runPopulationParamDirichletConstant ::
+  forall m a b param.
+  Monad m =>
+  -- | Number of particles
+  Int ->
+  -- | Resampler
+  (forall x. Population m x -> Population m x) ->
+  m param ->
+  MSF (Population m) (param, a) b ->
+  -- FIXME Why not MSF m a (Population b)
+  MSF m (Log Double, a) [((b, param), Log Double)]
+runPopulationParamDirichletConstant nParticles resampler param = runPopulationParamDirichletConstant' . mkInitialMSFs
+ where
+  mkInitialMSFs ::
+    MSF (Population m) (param, a) b ->
+    Population m (param, MSF (Population m) (param, a) b)
+  mkInitialMSFs msf = do
+    spawn nParticles
+    initialParam <- lift param
+    return (initialParam, msf)
+
+  runPopulationParamDirichletConstant' ::
+    Monad m =>
+    Population m (param, MSF (Population m) (param, a) b) ->
+    MSF m (Log Double, a) [((b, param), Log Double)]
+  runPopulationParamDirichletConstant' paramAndMSFs = MSF $ \(pNew, a) -> do
+    -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
+    -- FIXME This normalizes, which introduces bias, whatever that means
+    bAndMSFs <- runPopulation $ do
+      (param, msf) <- paramAndMSFs
+      bAndMSFs <- unMSF msf (param, a)
+      return (param, bAndMSFs)
+    newParam <- param
+    -- FIXME I should add the new sample before resampling, otherwise it will never have a chance against the 1/nParticles weight!
+    -- Or is it fine because I'm weighting before resampling as well?
+    -- There is a difference because we're not taking the total weight into account
+    let _ : bAndMSFsKept = sortOn snd bAndMSFs
+        ((_overwritten, bestBAndMSF), _p) = last bAndMSFsKept
+        -- I'm unsure about the normalization here, the total weight is 1 + pNew
+        bAndMSFsWithNew = ((newParam, bestBAndMSF), pNew) : bAndMSFsKept
+    return $
+      second
+        (runPopulationParamDirichletConstant' . normalize . resampler . fromWeightedList . return)
+        ( unzip $
+            ( \((param, (b, msf)), p) ->
+                ( ((b, param), p)
+                , ((param, msf), p)
+                )
+            )
+              <$> bAndMSFsWithNew
+        )
+
+-- | Constant number of particles
+runPopulationParamDirichletElastic ::
+  forall m a b param.
+  Monad m =>
+  -- | Number of particles
+  Int ->
+  -- | Resampler
+  (forall x. Population m x -> Population m x) ->
+  m param ->
+  MSF (Population m) (param, a) b ->
+  MSF m (Int, a) [((b, param), Log Double)]
+runPopulationParamDirichletElastic nParticles resampler param = runPopulationParamDirichletElastic' . mkInitialMSFs
+ where
+  mkInitialMSFs ::
+    MSF (Population m) (param, a) b ->
+    Population m (param, MSF (Population m) (param, a) b)
+  mkInitialMSFs msf = do
+    spawn nParticles
+    initialParam <- lift param
+    return (initialParam, msf)
+
+  runPopulationParamDirichletElastic' ::
+    Monad m =>
+    Population m (param, MSF (Population m) (param, a) b) ->
+    MSF m (Int, a) [((b, param), Log Double)]
+  runPopulationParamDirichletElastic' paramAndMSFs = MSF $ \(n, a) -> do
+    -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
+    -- FIXME This normalizes, which introduces bias, whatever that means
+    bAndMSFs <- runPopulation $ do
+      (param, msfs) <- paramAndMSFs
+      bAndMSFs <- unMSF msfs (param, a)
+      return (param, bAndMSFs)
+    newParams <- replicateM n param
+    let ((_overwritten, bestBAndMSF), _p) = last $ sortOn snd bAndMSFs
+        bAndMSFsWithNew = map (\newParam -> ((newParam, bestBAndMSF), 1)) newParams ++ bAndMSFs
+    return $
+      second
+        (runPopulationParamDirichletElastic' . normalize . resampler . fromWeightedList . return)
+        ( unzip $
+            ( \((param, (b, msf)), p) ->
+                ( ((b, param), p)
+                , ((param, msf), p)
+                )
+            )
+              <$> bAndMSFsWithNew
+        )
 
 -- FIXME PR to dunai to simplify type signature
 hoistMSF :: Functor m => (forall x. m x -> n x) -> MSF m a b -> MSF n a b
